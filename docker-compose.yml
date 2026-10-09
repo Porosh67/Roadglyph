@@ -1,0 +1,21 @@
+# Local run on a machine with an AMD GPU (the AMD Developer Cloud droplet, for example).
+#
+#   docker compose up -d --build
+#   docker compose exec roadglyph python3 /app/app.py --input-image /app/input/image_01.png
+#   cat output/image_01_output.json
+services:
+  roadglyph:
+    build: .
+    image: roadglyph:local
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    ipc: host
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - ./samples:/app/input:ro
+      - ./output:/app/output
+    restart: "no"

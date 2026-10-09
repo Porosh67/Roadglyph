@@ -1,0 +1,42 @@
+[project]
+name = "roadglyph"
+version = "1.0.0"
+description = "Scene-text OCR for licence plates and road signs, built for AMD ROCm."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "Pillow",
+  "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+model = [
+  "transformers>=4.57.0",
+  "accelerate>=1.0.0",
+  "huggingface_hub>=0.26.0",
+  "safetensors>=0.4.5",
+]
+dev = [
+  "pytest",
+  "ruff",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["app", "tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["samples", "models", "output"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["roadglyph"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["I001"]
+"scripts/*" = ["E402"]

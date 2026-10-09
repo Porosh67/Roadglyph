@@ -1,0 +1,30 @@
+# Keep the build context tiny and free of anything private.
+.git
+.github
+.gitignore
+.dockerignore
+
+# Environments, caches, secrets
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.env
+.env.*
+*.pem
+*.key
+
+# Not needed inside the image (only app/ and scripts/download_model.py are copied)
+tests
+docs
+samples
+output
+models
+*.zip
+*.md
+Makefile
+docker-compose.yml
+.idea
+.vscode

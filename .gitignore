@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Secrets (the Docker image is public: never commit credentials)
+.env
+.env.*
+*.pem
+*.key
+.hf_token
+
+# The grader asked participants NOT to publish where their image lives.
+# Keep the registry reference out of git.
+IMAGE_REF*
+*.image-ref
+
+# Large or generated data
+models/
+samples/
+output/
+traces/
+*.safetensors
+*.zip
+*.sock
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
