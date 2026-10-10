@@ -9,16 +9,14 @@
 #   * no secrets, tokens or .env files are ever copied in (the image is public).
 #
 # Build:   docker build -t roadglyph:local .
-# Pin the weights for a reproducible build:
-#          docker build --build-arg MODEL_REVISION=<commit-sha> -t roadglyph:local .
+# Model weights are NOT baked (official rules allow runtime download).
+# Image stays under the 60 GiB limit and is easy to push.
 
 ARG BASE_IMAGE=rocm/pytorch:rocm10.0_ubuntu26.04_py3.14_pytorch_release_2.13.0
 FROM ${BASE_IMAGE}
 
 ARG MODEL_ID=Qwen/Qwen3-VL-8B-Instruct
 ARG MODEL_REVISION=main
-# Only needed if the processor complains about torchvision (see README > Known risks), e.g.
-#   --build-arg TORCHVISION_SPEC="torchvision==<matching> --index-url https://download.pytorch.org/whl/rocm<ver>"
 ARG TORCHVISION_SPEC=""
 
 LABEL org.opencontainers.image.title="RoadGlyph" \
@@ -33,9 +31,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 1) Python dependencies. torch/torchvision/triton are pinned to what the base already ships so
-#    pip can never swap the ROCm build of torch for a CUDA wheel; the last line fails the
-#    build if that ever happens.
+# 1) Python dependencies. torch is pinned to the ROCm build from the base image.
 COPY app/requirements.txt /app/requirements.txt
 RUN python3 -m pip freeze | grep -iE '^(torch|torchvision|torchaudio|triton|pytorch-triton-rocm)==' > /tmp/torch-constraints.txt || true \
  && echo "pinned from base image:" && cat /tmp/torch-constraints.txt \
@@ -44,24 +40,22 @@ RUN python3 -m pip freeze | grep -iE '^(torch|torchvision|torchaudio|triton|pyto
  && python3 -c "import torch; assert torch.version.hip, 'torch lost its ROCm build'; print('torch', torch.__version__, 'hip', torch.version.hip)" \
  && rm -f /tmp/torch-constraints.txt
 
-# 2) Model weights are baked into the image: the grader's network access is not guaranteed and
-#    downloading at start-up would eat into the 10 minute budget.
-COPY scripts/download_model.py /tmp/download_model.py
-RUN python3 /tmp/download_model.py --model-id "${MODEL_ID}" --revision "${MODEL_REVISION}" --dest /models/model \
- && rm -f /tmp/download_model.py \
- && rm -rf /root/.cache
+# 2) NO model bake — download at runtime (allowed by official rules).
+#    Keeps image ~10-20 GB instead of 80+ GB.
+RUN mkdir -p /models
 
-# 3) Application code (last, so code edits do not invalidate the big layers above).
+# 3) Application code
 COPY app/ /app/
+COPY scripts/ /app/scripts/
 RUN mkdir -p /app/input /app/output && chmod 777 /app/output
 
-ENV ROADGLYPH_MODEL_PATH=/models/model \
+# HF id as model path → transformers downloads on first load.
+# Offline flags OFF so runtime download works.
+ENV ROADGLYPH_MODEL_PATH=Qwen/Qwen3-VL-8B-Instruct \
     ROADGLYPH_MODE=server \
-    HF_HUB_OFFLINE=1 \
-    TRANSFORMERS_OFFLINE=1
+    HF_HUB_OFFLINE=0 \
+    TRANSFORMERS_OFFLINE=0
 
-# The grader runs `python3 /app/app.py --input-image ...` once per image, each in a new process.
-# The container's main process is therefore a resident server that keeps the model loaded.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
   CMD ["python3", "/app/app.py", "--healthcheck"]
 
