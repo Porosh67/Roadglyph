@@ -1,0 +1,98 @@
+name: Build and Push RoadGlyph MC2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      # Allocate extra build storage for the large model image.
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@v9
+        with:
+          build-mount-path: /var/lib/docker
+          root-reserve-mb: 2048
+          temp-reserve-mb: 512
+          swap-size-mb: 1024
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+          remove-codeql: "true"
+          remove-docker-images: "true"
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Restart Docker
+        run: sudo service docker restart
+
+      - name: Check build files and available storage
+        run: |
+          set -euo pipefail
+          test -f Dockerfile
+          test -f app/requirements.txt
+          test -f app/app.py
+          test -f scripts/download_model.py
+          grep -q "download_model.py" Dockerfile   # weights MUST be baked into the image
+          df -h /
+          df -h /var/lib/docker
+          python3 -m compileall -q app
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: porosh987
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build image
+        env:
+          IMAGE: porosh987/roadglyph:v2
+          DOCKER_BUILDKIT: "1"
+        run: |
+          set -euo pipefail
+          docker build --pull --progress=plain -t "$IMAGE" .
+
+      # ROCm torch, baked weights, offline flags and the 60 GiB limit.
+      # (This cannot test GPU inference; that needs an AMD GPU.)
+      - name: Verify image (ROCm torch, weights baked in, size)
+        env:
+          IMAGE: porosh987/roadglyph:v2
+        run: |
+          set -euo pipefail
+
+          docker run --rm --entrypoint python3 "$IMAGE" -c \
+            'import torch; print("torch:", torch.__version__); print("HIP:", torch.version.hip); assert torch.version.hip and "+rocm" in torch.__version__, "ROCm PyTorch check failed"'
+
+          docker run --rm --entrypoint sh "$IMAGE" -c \
+            'test -f /models/model/config.json && ls /models/model/*.safetensors >/dev/null && du -sh /models/model && echo "WEIGHTS_BAKED_OK" && test "$HF_HUB_OFFLINE" = "1" && echo "OFFLINE_FLAG_OK"'
+
+          SIZE_BYTES=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+
+          python3 - "$SIZE_BYTES" <<'PY'
+          import sys
+
+          size = int(sys.argv[1])
+          limit = 60 * 1024**3
+
+          print(f"Uncompressed image size: {size / 1024**3:.2f} GiB")
+          if size > limit:
+              raise SystemExit("FAIL: image exceeds the 60 GiB limit")
+
+          print("IMAGE_SIZE_OK")
+          PY
+
+      - name: Push image to Docker Hub
+        env:
+          IMAGE: porosh987/roadglyph:v2
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE"
+          # Keep the old tag pointing at the fixed image too.
+          docker tag "$IMAGE" porosh987/roadglyph:v1
+          docker push porosh987/roadglyph:v1
